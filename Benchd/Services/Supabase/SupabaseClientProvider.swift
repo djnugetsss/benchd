@@ -9,10 +9,19 @@ import Supabase
 nonisolated enum SupabaseClientProvider {
 
     /// Throws `AppConfig.ConfigError` when `Secrets.xcconfig` hasn't been filled in.
+    ///
+    /// The database coders are supplied explicitly rather than left to the SDK's
+    /// defaults — see `PostgrestCoding` for why PostgREST timestamps need it.
     static func makeClient() throws -> SupabaseClient {
         SupabaseClient(
             supabaseURL: try AppConfig.supabaseURL,
-            supabaseKey: try AppConfig.supabaseAnonKey
+            supabaseKey: try AppConfig.supabaseAnonKey,
+            options: SupabaseClientOptions(
+                db: SupabaseClientOptions.DatabaseOptions(
+                    encoder: PostgrestCoding.encoder,
+                    decoder: PostgrestCoding.decoder
+                )
+            )
         )
     }
 
