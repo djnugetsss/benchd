@@ -1,0 +1,14 @@
+// Benchd — shared build settings for the app target.
+//
+// Secrets are layered on top of the defaults below. Order matters in an xcconfig:
+// a later assignment overrides an earlier one, so the defaults come FIRST and the
+// include comes SECOND. That way a real Secrets.xcconfig always wins, and a fresh
+// clone without one still generates and builds (with empty values, which AppConfig
+// reports as "not configured" instead of crashing).
+//
+// The "?" makes the include optional — a missing file is not a build error.
+
+SUPABASE_URL =
+SUPABASE_ANON_KEY =
+
+#include? "../Secrets.xcconfig"
