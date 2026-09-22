@@ -91,6 +91,16 @@ create index league_members_sleeper_user_id_idx
 -- service role. service_role bypasses RLS entirely in Supabase, so the absence
 -- of INSERT/UPDATE/DELETE policies is what locks writes to edge functions —
 -- there is deliberately no write policy to find here.
+--
+-- `using (true)` on SELECT is a DELIBERATE, reviewed decision, not an oversight:
+-- any authenticated user can read any league, including leagues they are not a
+-- member of. It is acceptable because every row here is mirrored from Sleeper's
+-- public, unauthenticated API — we expose nothing Sleeper does not already serve
+-- to anyone who knows the league_id.
+--
+-- If that ever stops being true (a private league source, or user-authored
+-- content on these tables), this policy must be narrowed to leagues the caller
+-- belongs to, via league_members -> sleeper_accounts -> auth.uid().
 
 alter table public.leagues enable row level security;
 alter table public.league_members enable row level security;
