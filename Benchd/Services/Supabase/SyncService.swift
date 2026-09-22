@@ -3,14 +3,39 @@ import Supabase
 
 enum SyncError: Error, Equatable, Sendable {
     case notConfigured
+    /// The edge function is not deployed to this project (HTTP 404).
+    case notDeployed
+    /// The project rejected our credentials (HTTP 401/403).
+    case unauthorized
     case network
     case failed(String)
 
     var message: String {
         switch self {
-        case .notConfigured: "The app isn't connected to its backend yet."
-        case .network: "You're offline. We'll pick this up when you reconnect."
-        case .failed(let reason): reason
+        case .notConfigured:
+            "The app isn't connected to its backend yet."
+        case .notDeployed:
+            "The sync service isn't available yet. This is a setup problem, not something you did."
+        case .unauthorized:
+            "We weren't allowed to start the sync. Check the app's Supabase keys."
+        case .network:
+            "You're offline. We'll pick this up when you reconnect."
+        case .failed(let reason):
+            reason
+        }
+    }
+
+    /// `true` when retrying or waiting cannot possibly help.
+    ///
+    /// This distinction is the whole point of the enum. A request we never got
+    /// an answer to may well be a sync running happily server-side, so the
+    /// screen should keep watching. A request the server *answered* with "no
+    /// such function" will never produce a sync, and waiting on it just burns
+    /// the stall timeout in front of the person.
+    var isPermanent: Bool {
+        switch self {
+        case .notConfigured, .notDeployed, .unauthorized: true
+        case .network, .failed: false
         }
     }
 }
@@ -74,6 +99,20 @@ struct SyncService: Sendable {
     }
 
     static func translate(_ error: any Error) -> SyncError {
+        if let functionsError = error as? FunctionsError {
+            switch functionsError {
+            case .httpError(let code, _):
+                switch code {
+                case 404: return .notDeployed
+                case 401, 403: return .unauthorized
+                default: return .failed("The sync service returned \(code).")
+                }
+            case .relayError:
+                // The gateway could not reach the function. Transient.
+                return .network
+            }
+        }
+
         if let urlError = error as? URLError {
             switch urlError.code {
             case .notConnectedToInternet, .networkConnectionLost, .timedOut,

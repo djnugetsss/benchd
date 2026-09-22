@@ -1,4 +1,5 @@
 import Foundation
+import Supabase
 import Testing
 @testable import Benchd
 
@@ -58,6 +59,40 @@ struct SyncEventTests {
     }
 }
 
+struct SyncErrorTests {
+
+    @Test("A 404 from the gateway means the function is not deployed")
+    func notDeployed() {
+        let error = SyncService.translate(FunctionsError.httpError(code: 404, data: Data()))
+        #expect(error == .notDeployed)
+        #expect(error.isPermanent)
+    }
+
+    @Test("401 and 403 are credential problems, not transient")
+    func unauthorized() {
+        for code in [401, 403] {
+            let error = SyncService.translate(FunctionsError.httpError(code: code, data: Data()))
+            #expect(error == .unauthorized)
+            #expect(error.isPermanent)
+        }
+    }
+
+    @Test("A relay failure or a dropped connection stays transient")
+    func transientFailures() {
+        // The function may be running server-side; the feed decides.
+        #expect(!SyncService.translate(FunctionsError.relayError).isPermanent)
+        #expect(!SyncService.translate(URLError(.timedOut)).isPermanent)
+        #expect(SyncService.translate(URLError(.notConnectedToInternet)) == .network)
+    }
+
+    @Test("A 5xx from a deployed function is not treated as permanent")
+    func serverErrorIsTransient() {
+        // The function was reached and crashed — a retry can still work, and
+        // the run may have written progress before dying.
+        #expect(!SyncService.translate(FunctionsError.httpError(code: 500, data: Data())).isPermanent)
+    }
+}
+
 @MainActor
 struct FirstSyncViewModelTests {
 
@@ -80,6 +115,23 @@ struct FirstSyncViewModelTests {
         let viewModel = model()
         await viewModel.start()
         #expect(viewModel.isFailed)
+    }
+
+    @Test("A permanent invoke failure surfaces immediately, not after the stall timeout")
+    func permanentFailureIsImmediate() async {
+        // Regression test for the real incident: the function was never
+        // deployed, the gateway answered 404 in 9ms, and the screen still sat
+        // on "Building your career" for 150 seconds before giving up.
+        let viewModel = FirstSyncViewModel(
+            accountID: UUID(),
+            sync: SyncService(client: nil)
+        )
+        let startedAt = ContinuousClock.now
+        await viewModel.start()
+        let elapsed = ContinuousClock.now - startedAt
+
+        #expect(viewModel.isFailed)
+        #expect(elapsed < .seconds(1))
     }
 
     @Test("start() does not stomp on a phase that is already running")

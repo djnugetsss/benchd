@@ -60,16 +60,16 @@ final class FirstSyncViewModel {
 
         do {
             try await sync.start(accountID: accountID)
-        } catch let error as SyncError {
-            // A timeout on the invoke is not a failed sync — the function keeps
-            // running server-side. Only a definite refusal stops us; otherwise
-            // fall through to polling, which is the real source of truth.
-            if case .notConfigured = error {
-                phase = .failed(error.message)
-                return
-            }
+        } catch let error as SyncError where error.isPermanent {
+            // The server answered, and the answer rules out a sync ever
+            // starting — a missing deployment or rejected credentials. Say so
+            // now rather than polling an empty feed until the stall timeout.
+            phase = .failed(error.message)
+            return
         } catch {
-            // Same reasoning: let the feed decide.
+            // Anything else means we did not get a definite answer. The
+            // function may well be running, so fall through to the event feed,
+            // which is the real source of truth.
         }
 
         phase = .running

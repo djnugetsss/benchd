@@ -70,6 +70,11 @@ bury the feed.
 
 ### Deploying
 
+**`supabase db push` alone is not enough.** The database and the functions
+deploy separately, and a project with migrations applied but no functions looks
+healthy right up until the app calls one and gets a 404 in 9ms. Both steps, plus
+the Vault secrets, or the sync silently never runs:
+
 ```bash
 supabase functions deploy sync-sleeper
 supabase functions deploy sync-players
@@ -84,9 +89,17 @@ exist, the cron jobs raise a clear error rather than failing silently.
 
 ```bash
 cd supabase/functions
-deno check --config deno.json sync-sleeper/index.ts sync-players/index.ts
-deno test  --config deno.json --allow-net --allow-env _shared/sync.test.ts
+deno check --no-config sync-sleeper/index.ts sync-players/index.ts
+deno test  --no-config --allow-net --allow-env _shared/sync.test.ts
 ```
+
+**Use `--no-config`.** Every import is an explicit `npm:` or `jsr:` specifier,
+and there is deliberately no import map — `supabase functions deploy` does not
+apply one, so a local check that relies on an import map can pass against a
+configuration the deploy never sees. `--no-config` reproduces deploy conditions.
+
+`deno.json` holds lint and format settings only. Do not add an `imports` block
+to it.
 
 ## Confirmed design decisions
 

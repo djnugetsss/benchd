@@ -34,7 +34,7 @@ import {
   round2,
   seasonOf,
 } from "../_shared/season.ts";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 /** Sleeper's regular season plus the longest plausible playoff run. */
 const MAX_WEEK = 18;
