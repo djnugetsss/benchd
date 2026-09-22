@@ -29,6 +29,19 @@ nonisolated enum AppConfig {
                 """
             }
         }
+
+        /// One short line for on-screen display. The full `description` goes to logs.
+        ///
+        /// These are deliberately different: "not configured" and "configured wrong"
+        /// send you to completely different places, and conflating them wastes time.
+        var shortDescription: String {
+            switch self {
+            case .missing(let key):
+                "\(key) is missing — create Secrets.xcconfig"
+            case .malformedURL(let key, let value):
+                "\(key) is malformed: \"\(value)\" — check the // escape"
+            }
+        }
     }
 
     static var supabaseURL: URL {
@@ -45,17 +58,26 @@ nonisolated enum AppConfig {
         get throws { try string(for: "SUPABASE_ANON_KEY") }
     }
 
-    /// `true` once both Supabase values are present and well-formed. The app uses
-    /// this to show a setup hint instead of crashing on a fresh clone.
-    static var isConfigured: Bool {
+    /// The first configuration problem found, or `nil` when everything is valid.
+    ///
+    /// Surfacing *which* problem matters: a value that is present but malformed
+    /// (the classic xcconfig `//` truncation) looks identical to a missing one if
+    /// you only report a boolean, and sends you hunting in the wrong place.
+    static var configurationError: ConfigError? {
         do {
             _ = try supabaseURL
             _ = try supabaseAnonKey
-            return true
+            return nil
+        } catch let error as ConfigError {
+            return error
         } catch {
-            return false
+            return nil
         }
     }
+
+    /// `true` once both Supabase values are present and well-formed. The app uses
+    /// this to show a setup hint instead of crashing on a fresh clone.
+    static var isConfigured: Bool { configurationError == nil }
 
     private static func string(for key: String) throws -> String {
         let value = Bundle.main.object(forInfoDictionaryKey: key) as? String

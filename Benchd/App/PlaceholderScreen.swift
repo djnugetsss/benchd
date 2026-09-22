@@ -2,51 +2,56 @@ import SwiftUI
 
 /// Temporary launch surface. Exists so the shell runs before any feature does.
 ///
-/// Delete this once Onboarding ships — it is scaffolding, not a design reference.
-/// It does, however, obey the rules: gradient canvas, tokens only, no default chrome.
+/// - Note: Not currently reachable — `RootView` is pinned to `DesignGalleryView`
+///   while the design system is being reviewed. Delete both this file and that
+///   pin when Onboarding ships.
+///
+/// It is scaffolding, not a design reference, but it does obey the rules:
+/// gradient canvas, tokens only, no default chrome.
 struct PlaceholderScreen: View {
-    private let isConfigured = AppConfig.isConfigured
+    private let configurationError = AppConfig.configurationError
+    private var isConfigured: Bool { configurationError == nil }
 
     var body: some View {
         ZStack {
-            GradientBackground()
+            GradientBackground(showsBloom: true)
 
-            VStack(spacing: Spacing.s5) {
+            VStack(spacing: Spacing.md) {
                 Spacer()
 
                 Text("Benchd")
-                    .font(Typography.statHero)
-                    .foregroundStyle(Palette.ink)
-                    .tracking(-1.5)
+                    .displayStyle(.hero)
+                    .foregroundStyle(Palette.textPrimary)
 
                 Text("Your fantasy career, in one place.")
                     .font(Typography.callout)
-                    .foregroundStyle(Palette.inkSecondary)
+                    .foregroundStyle(Palette.textSecondary)
 
                 Spacer()
 
                 statusPill
-                    .padding(.bottom, Spacing.s8)
+                    .padding(.bottom, Spacing.xxl)
             }
-            .padding(.horizontal, Spacing.screenMargin)
+            .padding(.horizontal, Spacing.screen)
             .multilineTextAlignment(.center)
         }
     }
 
     private var statusPill: some View {
-        HStack(spacing: Spacing.s3) {
+        HStack(spacing: Spacing.xs) {
             Circle()
-                .fill(isConfigured ? Palette.positive : Palette.inkTertiary)
+                .fill(isConfigured ? Palette.positive : Palette.textTertiary)
                 .frame(width: 6, height: 6)
 
-            Text(isConfigured ? "Supabase configured" : "Add Secrets.xcconfig to connect")
+            Text(configurationError?.shortDescription ?? "Supabase configured")
                 .font(Typography.caption)
-                .foregroundStyle(Palette.inkSecondary)
+                .foregroundStyle(Palette.textSecondary)
+                .multilineTextAlignment(.center)
         }
-        .padding(.horizontal, Spacing.s5)
-        .padding(.vertical, Spacing.s4)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
         .background(Palette.surface.opacity(0.7), in: Capsule())
-        .overlay(Capsule().strokeBorder(Palette.divider, lineWidth: 1))
+        .overlay(Capsule().strokeBorder(Palette.divider, lineWidth: Stroke.border))
     }
 }
 

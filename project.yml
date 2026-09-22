@@ -44,6 +44,19 @@ targets:
     configFiles:
       Debug: Config/Shared.xcconfig
       Release: Config/Shared.xcconfig
+    preBuildScripts:
+      - name: Validate Supabase config
+        basedOnDependencyAnalysis: false
+        script: |
+          # "//" starts a comment in an .xcconfig file EVEN INSIDE A VALUE, so a
+          # pasted Supabase URL silently truncates to "https:" and the app reports
+          # itself as unconfigured at runtime. Catch it here instead.
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "warning: Supabase config is empty. Copy Secrets.example.xcconfig to Secrets.xcconfig and fill it in."
+          elif ! printf '%s' "$SUPABASE_URL" | grep -qE '^https://[^/]+\..+'; then
+            echo "error: SUPABASE_URL resolved to \"$SUPABASE_URL\" - the // was eaten by the xcconfig comment parser. In Secrets.xcconfig write it as https:/\$()/your-ref.supabase.co"
+            exit 1
+          fi
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.anshmehta.benchd
