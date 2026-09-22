@@ -23,6 +23,71 @@ supabase/
 - Syncing is periodic, not real-time: Sleeper pulls run on a schedule or a manual
   refresh, from an Edge Function — not from the client on a timer.
 
+## Required dashboard setup (auth)
+
+Magic links will not work until this is configured in the Supabase dashboard —
+it cannot be done from a migration.
+
+**Authentication → URL Configuration → Redirect URLs**, add:
+
+```
+benchd://auth-callback
+```
+
+That string appears in exactly two places in the app and both must match it:
+`AuthService.redirectURL`, and `CFBundleURLTypes` in
+`Benchd/Resources/Info.plist`. If the dashboard does not list it, Supabase sends
+people to the site URL instead and the app never receives the token.
+
+Email magic link is the only sign-in method in v1 — no passwords, no Sign in
+with Apple — so **Authentication → Providers → Email** must stay enabled.
+
+## Sync architecture
+
+Two functions, two cadences. Neither is real-time, by design.
+
+| Function | Trigger | Cadence |
+|---|---|---|
+| `sync-players` | pg_cron | Daily, 09:40 UTC — Sleeper asks for at most once a day on `/players/nfl` (~5MB) |
+| `sync-sleeper` | pg_cron, and the app after a connect | Hourly at :20, only for accounts whose owner opened the app in the last 30 days |
+
+**Idempotency.** Every write is an upsert on a natural key, so a re-run changes
+nothing. For leagues whose season is `complete`, weeks already present in
+`matchups` are not re-fetched — that is what keeps the hourly job cheap once a
+history has landed.
+
+**Rate limiting.** `SleeperClient` paces itself to one call per 120ms (~500/min
+per instance, half of Sleeper's stated ceiling) and backs off on 429/5xx. The
+scheduler caps each hourly tick at 200 accounts so it cannot release a stampede.
+
+**Time budget.** `sync-sleeper` stops at 110s and reports partial success rather
+than being killed mid-write. Leagues are synced newest-first so a truncated run
+still leaves a useful profile, and the next run picks up the rest.
+
+**Progress.** The function writes to `sync_events`; the first-sync screen polls
+it. Cron runs write no events — nobody is watching, and an hourly refresh would
+bury the feed.
+
+### Deploying
+
+```bash
+supabase functions deploy sync-sleeper
+supabase functions deploy sync-players
+supabase db push                          # includes the pg_cron schedule
+```
+
+Then the one-time Vault setup in
+`supabase/migrations/20260922100100_scheduled_sync.sql`. Until those two secrets
+exist, the cron jobs raise a clear error rather than failing silently.
+
+### Testing the functions
+
+```bash
+cd supabase/functions
+deno check --config deno.json sync-sleeper/index.ts sync-players/index.ts
+deno test  --config deno.json --allow-net --allow-env _shared/sync.test.ts
+```
+
 ## Confirmed design decisions
 
 These were raised explicitly and signed off. Do not quietly reverse them; if one

@@ -68,14 +68,17 @@ struct PrimaryButton: View {
                 }
                 Text(title).font(Typography.button).tracking(-0.1)
             }
-            .foregroundStyle(tone.foreground)
+            .foregroundStyle(isEnabled ? tone.foreground : Palette.textTertiary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.md + 2)
-            .background(tone.background, in: RoundedRectangle.soft(Radius.md))
-            .opacity(isEnabled ? 1 : 0.35)
+            .background(
+                isEnabled ? tone.background : Palette.surfaceSecondary,
+                in: RoundedRectangle.soft(Radius.md)
+            )
         }
         .buttonStyle(SoftPressStyle())
         .disabled(!isEnabled)
+        .animation(Motion.gentle, value: isEnabled)
     }
 }
 
@@ -106,15 +109,46 @@ struct SecondaryButton: View {
                 }
                 Text(title).font(Typography.button).tracking(-0.1)
             }
-            .foregroundStyle(Palette.textPrimary)
+            .foregroundStyle(isEnabled ? Palette.textPrimary : Palette.textTertiary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.md + 2)
-            .background(Palette.surface, in: RoundedRectangle.soft(Radius.md))
+            .background(
+                isEnabled ? Palette.surface : Palette.surfaceSecondary,
+                in: RoundedRectangle.soft(Radius.md)
+            )
             .overlay(
                 RoundedRectangle.soft(Radius.md)
                     .strokeBorder(Palette.divider, lineWidth: Stroke.border)
             )
-            .opacity(isEnabled ? 1 : 0.35)
+        }
+        .buttonStyle(SoftPressStyle())
+        .disabled(!isEnabled)
+        .animation(Motion.gentle, value: isEnabled)
+    }
+}
+
+/// A quiet text action. For the third-rank choice on a screen — "Back", "Skip",
+/// "Use a different email" — where a full-width bordered button would compete
+/// with the real action and make the screen read as a form.
+struct TertiaryButton: View {
+    let title: String
+    var isEnabled: Bool = true
+    let action: () -> Void
+
+    init(_ title: String, isEnabled: Bool = true, action: @escaping () -> Void) {
+        self.title = title
+        self.isEnabled = isEnabled
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(Typography.callout)
+                .foregroundStyle(isEnabled ? Palette.textSecondary : Palette.textTertiary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Spacing.sm)
+                .contentShape(Rectangle())
         }
         .buttonStyle(SoftPressStyle())
         .disabled(!isEnabled)
@@ -127,6 +161,8 @@ struct SecondaryButton: View {
         PrimaryButton("Share your wrap", tone: .accent, systemImage: "square.and.arrow.up") {}
         SecondaryButton("Not now") {}
         PrimaryButton("Disabled", isEnabled: false) {}
+        SecondaryButton("Disabled", isEnabled: false) {}
+        TertiaryButton("Back") {}
     }
     .padding(Spacing.screen)
     .frame(maxHeight: .infinity)

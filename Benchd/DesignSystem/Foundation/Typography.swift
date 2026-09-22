@@ -79,6 +79,18 @@ enum DisplayStyle: CaseIterable {
         }
     }
 
+    /// Size of the skeleton bar shown while a stat is still loading. Matched to
+    /// each role's cap height so the layout does not jump when the real number
+    /// arrives.
+    var placeholderSize: CGSize {
+        switch self {
+        case .hero: CGSize(width: 168, height: 46)
+        case .large: CGSize(width: 124, height: 32)
+        case .medium: CGSize(width: 86, height: 24)
+        case .small: CGSize(width: 62, height: 17)
+        }
+    }
+
     var name: String {
         switch self {
         case .hero: "displayHero"

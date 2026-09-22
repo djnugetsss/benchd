@@ -8,6 +8,9 @@ import SwiftUI
 enum StatValue: Equatable {
     case number(Double, decimals: Int)
     case text(String)
+    /// Not available yet. Renders a skeleton bar rather than a dash — an em-dash
+    /// at display size reads as a redaction bar, not as "loading".
+    case pending
 
     /// A whole number.
     static func number(_ value: Double) -> StatValue { .number(value, decimals: 0) }
@@ -21,6 +24,8 @@ enum StatValue: Equatable {
             value.formatted(.number.precision(.fractionLength(decimals)))
         case .text(let string):
             string
+        case .pending:
+            "Not available yet"
         }
     }
 }
@@ -81,6 +86,12 @@ struct StatBlock: View {
                 .onAppear { animate(to: target) }
         case .text(let string):
             Text(string)
+        case .pending:
+            SkeletonBlock(
+                width: style.placeholderSize.width,
+                height: style.placeholderSize.height,
+                radius: Radius.sm
+            )
         }
     }
 
@@ -141,6 +152,21 @@ private struct CountingNumber: View, Animatable {
             style: .hero,
             alignment: .center
         )
+    }
+    .padding(Spacing.screen)
+    .frame(maxHeight: .infinity)
+    .gradientBackground()
+}
+
+#Preview("StatBlock — pending") {
+    VStack(alignment: .leading, spacing: Spacing.sectionGap) {
+        StatBlock(label: "All-time record", value: .pending, style: .hero,
+                  caption: "Once your first sync finishes")
+        HStack(alignment: .top, spacing: Spacing.md) {
+            StatBlock(label: "Titles", value: .pending, style: .medium)
+            StatBlock(label: "Seasons", value: .pending, style: .medium)
+            StatBlock(label: "Leagues", value: .pending, style: .medium)
+        }
     }
     .padding(Spacing.screen)
     .frame(maxHeight: .infinity)

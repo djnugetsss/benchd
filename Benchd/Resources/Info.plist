@@ -35,6 +35,23 @@
 	<key>UIUserInterfaceStyle</key>
 	<string>Light</string>
 
+	<!-- Magic-link return path. Must match AuthService.redirectURL and the
+	     allowed redirect URLs in the Supabase dashboard
+	     (Authentication -> URL Configuration). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>benchd</string>
+			</array>
+		</dict>
+	</array>
+
 	<!-- Injected at build time from Secrets.xcconfig. See Secrets.example.xcconfig. -->
 	<key>SUPABASE_URL</key>
 	<string>$(SUPABASE_URL)</string>
