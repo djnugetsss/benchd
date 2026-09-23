@@ -31,6 +31,11 @@ final class AppSession {
 
     private(set) var connectionState: ConnectionState = .unknown
 
+    /// Bumped whenever a sync finishes. Screens that show synced data key their
+    /// reload off this, so a background refresh lands without the person having
+    /// to leave the tab or restart the app.
+    private(set) var syncGeneration: Int = 0
+
     init(
         auth: AuthService = AuthService(),
         accounts: SleeperAccountService = SleeperAccountService(),
@@ -64,6 +69,12 @@ final class AppSession {
                     : .main
             }
         }
+    }
+
+    /// The connected Sleeper account, when there is one.
+    var connectedAccount: SleeperAccount? {
+        if case .connected(let account) = connectionState { return account }
+        return nil
     }
 
     func start() {
@@ -105,6 +116,14 @@ final class AppSession {
     /// it emits the completion event, so the truth is already in Postgres.
     func markSyncComplete() async {
         await refreshConnectionState()
+        syncGeneration += 1
+    }
+
+    /// Called when the app returns to the foreground. A sync may have completed
+    /// server-side while we were away.
+    func refreshAfterForeground() async {
+        await refreshConnectionState()
+        syncGeneration += 1
     }
 
     /// Stamps `profiles.last_seen_at`, which is what the hourly scheduler uses

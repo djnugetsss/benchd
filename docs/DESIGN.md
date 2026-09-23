@@ -347,6 +347,8 @@ feature file.
 | `SecondaryButton` | Everything else. Surface fill, hairline border. |
 | `Avatar` | Circular image or initials fallback. Optional accent ring for active state. |
 | `SoftDivider` | Hairline separator with optional inset. |
+| `StatRow` | A list row that ends in a number: optional leading mark, title, quiet subtitle, trailing value. |
+| `RowCard` | A card whose content is a list of rows, separated by hairlines that run its full width. Never a `List`. |
 | `EmptyState` | Quiet centered mark, title, message, optional action. |
 | `SkeletonBlock` / `.shimmering()` | Soft loading placeholder. |
 

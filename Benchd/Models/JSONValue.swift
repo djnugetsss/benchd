@@ -1,7 +1,8 @@
 import Foundation
 
 /// A freeform JSON value, for `jsonb` columns whose shape is deliberately not
-/// fixed — currently only `career_stats.details`.
+/// fixed: `sync_events.detail`, and the `settings` blobs Sleeper owns on
+/// `leagues` and `drafts`.
 ///
 /// Defined here rather than using the Supabase SDK's `AnyJSON` so that `Models/`
 /// stays free of any dependency on the transport layer: these types must be

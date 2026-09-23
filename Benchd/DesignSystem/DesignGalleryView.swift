@@ -334,7 +334,42 @@ struct DesignGalleryView: View {
                     Text("Below").font(Typography.body).foregroundStyle(Palette.textSecondary)
                 }
             }
+
+            specimenLabel("RowCard + StatRow")
+            RowCard(data: GallerySeason.samples) { season in
+                StatRow(
+                    title: season.league,
+                    subtitle: season.record,
+                    value: season.finish,
+                    valueCaption: season.caption
+                ) {
+                    Text(String(season.year))
+                        .displayStyle(.small)
+                        .foregroundStyle(Palette.textSecondary)
+                }
+            }
         }
+    }
+
+    /// Gallery-only fixture for the row specimens.
+    private struct GallerySeason: Identifiable {
+        let id = UUID()
+        let year: Int
+        let league: String
+        let record: String
+        let finish: String
+        let caption: String?
+
+        static let samples = [
+            GallerySeason(
+                year: 2023, league: "Dynasty Dads", record: "9–5 · 124.8 a week",
+                finish: "1st", caption: nil
+            ),
+            GallerySeason(
+                year: 2022, league: "Work League", record: "20–8 · 114.1 a week",
+                finish: "5th", caption: "median"
+            ),
+        ]
     }
 
     // MARK: - Loading

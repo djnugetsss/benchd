@@ -60,13 +60,46 @@ history has landed.
 per instance, half of Sleeper's stated ceiling) and backs off on 429/5xx. The
 scheduler caps each hourly tick at 200 accounts so it cannot release a stampede.
 
-**Time budget.** `sync-sleeper` stops at 110s and reports partial success rather
+**Time budget.** `sync-sleeper` stops fetching leagues at 95s — leaving headroom
+for the career stats pass that follows it — and reports partial success rather
 than being killed mid-write. Leagues are synced newest-first so a truncated run
 still leaves a useful profile, and the next run picks up the rest.
 
 **Progress.** The function writes to `sync_events`; the first-sync screen polls
 it. Cron runs write no events — nobody is watching, and an hourly refresh would
 bury the feed.
+
+### Career stats
+
+`sync-sleeper` finishes by rebuilding `career_stats` for the account. The
+arithmetic lives in `_shared/career.ts` — pure functions over rows, no network,
+no clock, no Supabase client — so it is unit tested against fixtures in
+`_shared/career.test.ts`. The edge function only gathers rows and upserts the
+result, and it reads them back out of Postgres rather than accumulating during
+the sync, so a run that stopped at its time budget still produces a profile
+consistent with what actually landed. Rebuilding a profile is therefore one call
+to `recomputeCareerStats`, and `career_stats` stays safe to truncate.
+
+The promoted columns (`wins`, `losses`, `ties`, `points_for`, `points_against`)
+are the **regular season**, which is what Sleeper's own roster record means and
+what a user recognises as "my record". Playoffs, streaks, the per-season
+timeline, draft grades, rivalries and the featured facts are in `details`, under
+a `version` the app can check.
+
+Five things there are easy to get wrong, each handled explicitly and covered by
+a test:
+
+| Case | What the code does |
+|---|---|
+| Weeks not yet played | Sleeper answers for every week of a live league with zeroes. A week counts only if somebody scored, and `settings.leg` excludes the week in progress — a partial score is not a result |
+| Median scoring | `league_average_match` settles two results a week. The extra result counts in the record; the median is *not* added to points against, because it is a threshold, not a team |
+| Playoffs vs consolation | Playoff-week rows in `matchups` contain both brackets. The playoff record comes from `leagues.winners_bracket`, falling back to `finish_rank` for the title alone |
+| Draft grades | A pick is worth what it scored **in that roster's starting lineup that season**, measured against what the other picks in the same round of the same draft returned. Keepers and auctions are excluded — neither is a draft-position call |
+| Rosters vs people | Rivalries are keyed on `sleeper_user_id`, so a rival is still the same rival after the league rolls over and the roster numbers change. Ownership beats co-ownership. A roster that changed hands mid-season is attributed to its current owner — Sleeper reports no history for it |
+
+Streaks are computed within one league-season. Someone in three leagues at once
+plays three parallel schedules, and interleaving them by week would manufacture
+a streak out of games from different competitions.
 
 ### Deploying
 
@@ -91,6 +124,7 @@ exist, the cron jobs raise a clear error rather than failing silently.
 cd supabase/functions
 deno check --no-config sync-sleeper/index.ts sync-players/index.ts
 deno test  --no-config --allow-net --allow-env _shared/sync.test.ts
+deno test  --no-config _shared/career.test.ts
 ```
 
 **Use `--no-config`.** Every import is an explicit `npm:` or `jsr:` specifier,
@@ -126,7 +160,8 @@ the comment in `20260921120200_leagues.sql`.
 | Column | Why |
 |---|---|
 | `matchups.players` | Bench points are uncomputable from `starters` alone, and "what you left on the bench" is core wrap-card material |
-| `league_members.wins/losses/ties/fpts/fpts_against` | Free from Sleeper's rosters endpoint and the primary input to `career_stats`; deriving from matchups would be slower and wrong for seasons predating a connection |
+| `leagues.winners_bracket` | A playoff record cannot be recovered from playoff-week matchups, which also hold the consolation bracket |
+| `league_members.wins/losses/ties/fpts/fpts_against` | Free from Sleeper's rosters endpoint. The career computation derives the record from `matchups` instead — streaks, rivalries and per-week facts need the weeks anyway — and falls back to these totals for a league-season whose matchups have not landed yet |
 | `sleeper_accounts.sync_error` | Surfacing *why* a sync failed |
 | `leagues.roster_positions/settings/avatar` | Returned by Sleeper, needed for league display |
 | `draft_picks.metadata` | Sleeper's all-string pick payload |

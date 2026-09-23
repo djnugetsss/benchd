@@ -36,3 +36,34 @@ export function chunk<T>(items: T[], size: number): T[][] {
   }
   return chunks;
 }
+
+/**
+ * Reads every row of a query, a page at a time.
+ *
+ * PostgREST caps a response at its configured maximum — 1000 rows by default —
+ * and says nothing when it truncates. A single league-season is a few hundred
+ * matchup rows, so a career easily crosses that line: without paging, the
+ * career stats would silently be computed from the first 1000 rows and the
+ * oldest seasons would quietly vanish.
+ *
+ * The filter builder is consumed lazily by `.range()`, so pass a freshly built
+ * query, not one that has already been awaited.
+ */
+export async function selectAll<T>(
+  // deno-lint-ignore no-explicit-any
+  query: any,
+  pageSize = 1000,
+): Promise<T[]> {
+  const rows: T[] = [];
+
+  for (let from = 0;; from += pageSize) {
+    const { data, error } = await query.range(from, from + pageSize - 1);
+    if (error) throw error;
+
+    const page = (data ?? []) as T[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  return rows;
+}

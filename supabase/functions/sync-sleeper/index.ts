@@ -23,7 +23,17 @@ import {
   type SleeperMatchup,
   type SleeperRoster,
 } from "../_shared/sleeper.ts";
-import { adminClient, chunk, jsonResponse } from "../_shared/supabase.ts";
+import { adminClient, chunk, jsonResponse, selectAll } from "../_shared/supabase.ts";
+import {
+  type CareerInput,
+  computeCareerStats,
+  type DraftRow,
+  type LeagueBundle,
+  type LeagueRow,
+  type MatchupRow,
+  type MemberRow,
+  type PickRow,
+} from "../_shared/career.ts";
 import { plural, ProgressReporter } from "../_shared/progress.ts";
 import {
   combinePoints,
@@ -31,7 +41,6 @@ import {
   FIRST_SEASON,
   nullIfZero,
   numberOrNull,
-  round2,
   seasonOf,
 } from "../_shared/season.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
@@ -40,11 +49,16 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 const MAX_WEEK = 18;
 
 /**
- * Wall-clock budget. Edge functions are killed at their platform limit, and a
- * run that dies mid-write leaves sync_status stuck on 'syncing'. Stopping early
- * and reporting partial success is recoverable; being killed is not.
+ * Wall-clock budget for the league loop. Edge functions are killed at their
+ * platform limit, and a run that dies mid-write leaves sync_status stuck on
+ * 'syncing'. Stopping early and reporting partial success is recoverable; being
+ * killed is not.
+ *
+ * Lower than the platform limit by more than it looks: the career stats pass
+ * runs *after* this budget is spent, and it reads every matchup of every league
+ * the account is in. That pass needs headroom of its own.
  */
-const TIME_BUDGET_MS = 110_000;
+const TIME_BUDGET_MS = 95_000;
 
 interface SyncRequest {
   sleeper_account_id?: string;
@@ -378,6 +392,14 @@ async function syncWinnersBracket(
   const bracket = await sleeper.winnersBracket(leagueId);
   if (!bracket || bracket.length === 0) return;
 
+  // Kept verbatim. A playoff record cannot be recovered from playoff-week
+  // matchups, which also contain the consolation bracket — see
+  // `20260922110000_winners_bracket.sql`.
+  await supabase
+    .from("leagues")
+    .update({ winners_bracket: bracket })
+    .eq("league_id", leagueId);
+
   // `p` is the placement a matchup decides: p=1 is the championship game, so
   // its winner finished 1st and its loser 2nd. Anything without `p` is an
   // earlier round and settles no final position.
@@ -448,64 +470,166 @@ async function syncDrafts(
 // Career stats
 // ---------------------------------------------------------------------------
 
-interface MemberTotals {
-  league_id: string;
-  wins: number;
-  losses: number;
-  ties: number;
-  fpts: number;
-  fpts_against: number;
-  finish_rank: number | null;
-}
+/** `.in()` list size. Keeps the generated URL well clear of any header limit. */
+const ID_CHUNK = 60;
 
 /**
- * Recomputes the cached career profile from what was just written.
+ * Recomputes the cached career profile from what is now stored.
  *
- * Reads back from Postgres rather than accumulating in memory, so a partial run
- * still produces a profile consistent with what is actually stored.
+ * Reads back from Postgres rather than accumulating during the sync, so a run
+ * that stopped early still produces a profile consistent with the data that
+ * actually landed — and so the profile can be rebuilt at any time by calling
+ * this alone.
+ *
+ * The arithmetic itself is in `_shared/career.ts`, which touches neither the
+ * network nor the clock. This function only gathers rows.
  */
 async function recomputeCareerStats(supabase: SupabaseClient, account: AccountRow) {
-  const { data, error } = await supabase
-    .from("league_members")
-    .select("league_id, wins, losses, ties, fpts, fpts_against, finish_rank")
-    .eq("sleeper_user_id", account.sleeper_user_id);
+  const leagueIds = await userLeagueIds(supabase, account.sleeper_user_id);
 
-  if (error) throw error;
-  const rows = (data ?? []) as MemberTotals[];
+  const input: CareerInput = {
+    sleeper_user_id: account.sleeper_user_id,
+    leagues: leagueIds.length > 0 ? await loadLeagueBundles(supabase, leagueIds) : [],
+  };
 
-  const leagueIds = rows.map((row) => row.league_id);
-  let seasons = 0;
-  if (leagueIds.length > 0) {
-    const { data: leagueRows } = await supabase
-      .from("leagues")
-      .select("season")
-      .in("league_id", leagueIds);
-    seasons = new Set((leagueRows ?? []).map((l: { season: number }) => l.season)).size;
-  }
-
-  const totals = rows.reduce(
-    (acc, row) => ({
-      wins: acc.wins + (row.wins ?? 0),
-      losses: acc.losses + (row.losses ?? 0),
-      ties: acc.ties + (row.ties ?? 0),
-      championships: acc.championships + (row.finish_rank === 1 ? 1 : 0),
-      points_for: acc.points_for + Number(row.fpts ?? 0),
-      points_against: acc.points_against + Number(row.fpts_against ?? 0),
-    }),
-    { wins: 0, losses: 0, ties: 0, championships: 0, points_for: 0, points_against: 0 },
-  );
+  const stats = computeCareerStats(input);
 
   await supabase.from("career_stats").upsert({
     sleeper_account_id: account.id,
-    ...totals,
-    points_for: round2(totals.points_for),
-    points_against: round2(totals.points_against),
-    seasons,
-    leagues_count: new Set(leagueIds).size,
-    details: {},
+    wins: stats.wins,
+    losses: stats.losses,
+    ties: stats.ties,
+    championships: stats.championships,
+    seasons: stats.seasons,
+    leagues_count: stats.leagues_count,
+    points_for: stats.points_for,
+    points_against: stats.points_against,
+    details: stats.details,
     computed_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }, { onConflict: "sleeper_account_id" });
+}
+
+/**
+ * Every league this Sleeper user has a roster in.
+ *
+ * Two queries because ownership and co-ownership live in different columns, and
+ * a co-owner's history is theirs too. Leagues reached only by following a
+ * `previous_league_id` chain are deliberately absent: the user was not in them.
+ */
+async function userLeagueIds(
+  supabase: SupabaseClient,
+  sleeperUserId: string,
+): Promise<string[]> {
+  const owned = await selectAll<{ league_id: string }>(
+    supabase.from("league_members").select("league_id").eq(
+      "sleeper_user_id",
+      sleeperUserId,
+    ),
+  );
+
+  const coOwned = await selectAll<{ league_id: string }>(
+    supabase.from("league_members").select("league_id").contains("co_owner_ids", [
+      sleeperUserId,
+    ]),
+  );
+
+  return [...new Set([...owned, ...coOwned].map((row) => row.league_id))];
+}
+
+async function loadLeagueBundles(
+  supabase: SupabaseClient,
+  leagueIds: string[],
+): Promise<LeagueBundle[]> {
+  const leagues: LeagueRow[] = [];
+  const members: MemberRow[] = [];
+  const matchups: MatchupRow[] = [];
+  const drafts: DraftRow[] = [];
+  const picks: PickRow[] = [];
+
+  for (const ids of chunk(leagueIds, ID_CHUNK)) {
+    leagues.push(
+      ...await selectAll<LeagueRow>(
+        supabase
+          .from("leagues")
+          .select(
+            "league_id, name, season, status, total_rosters, settings, winners_bracket",
+          )
+          .in("league_id", ids),
+      ),
+    );
+
+    // Every roster, not just the user's: opponents are what rivalries, points
+    // against, and the league median are made of.
+    members.push(
+      ...await selectAll<MemberRow>(
+        supabase
+          .from("league_members")
+          .select(
+            "league_id, roster_id, sleeper_user_id, team_name, co_owner_ids, wins, losses, ties, fpts, fpts_against, finish_rank",
+          )
+          .in("league_id", ids),
+      ),
+    );
+
+    // `players` is skipped on purpose — only the starting lineup is needed, and
+    // it is the larger of the two arrays.
+    matchups.push(
+      ...await selectAll<MatchupRow>(
+        supabase
+          .from("matchups")
+          .select(
+            "league_id, week, roster_id, matchup_id, points, custom_points, starters, players_points",
+          )
+          .in("league_id", ids),
+      ),
+    );
+
+    drafts.push(
+      ...await selectAll<DraftRow>(
+        supabase
+          .from("drafts")
+          .select("draft_id, league_id, season, type, rounds")
+          .in("league_id", ids),
+      ),
+    );
+  }
+
+  for (const draftIds of chunk(drafts.map((d) => d.draft_id), ID_CHUNK)) {
+    picks.push(
+      ...await selectAll<PickRow>(
+        supabase
+          .from("draft_picks")
+          .select(
+            "draft_id, pick_no, round, draft_slot, player_id, roster_id, picked_by, is_keeper, metadata",
+          )
+          .in("draft_id", draftIds),
+      ),
+    );
+  }
+
+  const picksByDraft = groupBy(picks, (pick) => pick.draft_id);
+
+  return leagues.map((league) => {
+    const leagueDrafts = drafts.filter((draft) => draft.league_id === league.league_id);
+    return {
+      league,
+      members: members.filter((row) => row.league_id === league.league_id),
+      matchups: matchups.filter((row) => row.league_id === league.league_id),
+      drafts: leagueDrafts,
+      picks: leagueDrafts.flatMap((draft) => picksByDraft.get(draft.draft_id) ?? []),
+    };
+  });
+}
+
+function groupBy<T, K>(items: T[], key: (item: T) => K): Map<K, T[]> {
+  const groups = new Map<K, T[]>();
+  for (const item of items) {
+    const group = groups.get(key(item));
+    if (group) group.push(item);
+    else groups.set(key(item), [item]);
+  }
+  return groups;
 }
 
 // ---------------------------------------------------------------------------

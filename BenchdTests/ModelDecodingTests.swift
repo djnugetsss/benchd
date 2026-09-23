@@ -188,7 +188,7 @@ struct ModelDecodingTests {
         #expect(pick.metadata["years_exp"] == "6")
     }
 
-    @Test("CareerStats decodes freeform details and derives a record")
+    @Test("CareerStats decodes its headline columns and derives a record")
     func careerStats() throws {
         let stats = try decode(CareerStats.self, """
         {
@@ -196,13 +196,14 @@ struct ModelDecodingTests {
           "wins": 128, "losses": 74, "ties": 2, "championships": 3,
           "seasons": 6, "leagues_count": 2,
           "points_for": 18420.55, "points_against": 17100.25,
-          "details": {"best_pick": {"player_id": "4046", "round": 7}},
+          "details": {"version": 1, "regular_season": {"wins": 128, "losses": 74}},
           "computed_at": "2026-09-21T12:00:00.654321+00:00"
         }
         """)
         #expect(stats.recordText == "128–74–2")
         #expect(stats.gamesPlayed == 204)
-        #expect(stats.details["best_pick"]?["round"]?.intValue == 7)
+        #expect(stats.details.version == 1)
+        #expect(stats.details.regularSeason.wins == 128)
         let winPct = try #require(stats.winPercentage)
         #expect(abs(winPct - (129.0 / 204.0)) < 0.0001)
     }

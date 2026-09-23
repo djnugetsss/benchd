@@ -186,6 +186,27 @@ struct AppSessionRoutingTests {
         #expect(session.connectionState == .connected(account))
     }
 
+    @Test("Finishing a sync bumps the generation Profile keys its reload off")
+    func syncCompleteBumpsGeneration() async {
+        // This is the link that did not exist before: Profile's .task(id:) is
+        // keyed on syncGeneration, so without this increment a finished sync
+        // leaves the page showing whatever it loaded on first appear.
+        let session = session()
+        let before = session.syncGeneration
+        await session.markSyncComplete()
+        #expect(session.syncGeneration == before + 1)
+    }
+
+    @Test("Returning to the foreground also bumps the generation")
+    func foregroundBumpsGeneration() async {
+        // Covers the hourly cron case: a sync can finish while the app is
+        // backgrounded, with nothing in-process to observe it.
+        let session = session()
+        let before = session.syncGeneration
+        await session.refreshAfterForeground()
+        #expect(session.syncGeneration == before + 1)
+    }
+
     @Test("last_synced_at is what separates the first sync from the main app")
     func syncedAccountSkipsFirstSync() {
         let fresh = account(lastSyncedAt: nil)
