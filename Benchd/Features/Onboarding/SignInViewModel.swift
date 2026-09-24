@@ -1,26 +1,72 @@
-import AuthenticationServices
 import Foundation
 
 /// Drives the sign-in screen.
 ///
-/// The whole flow is two calls: hand Apple a request carrying a hashed nonce,
-/// then hand Apple's answer to Supabase along with the raw one. The nonce is
-/// held here, between those two moments, and nowhere else.
+/// One screen does both jobs. Creating an account and signing in take the same
+/// two fields, and splitting them into two screens would mean guessing which one
+/// somebody wants before they have told you.
 @Observable
 final class SignInViewModel {
 
-    enum Phase: Equatable {
-        case idle
-        /// Apple's sheet is up, or the token is being exchanged.
-        case authenticating
+    enum Mode: Equatable {
+        case signUp
+        case signIn
+
+        var title: String {
+            switch self {
+            case .signUp: "Create your account"
+            case .signIn: "Welcome back"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .signUp: "An email and a password. That's the whole sign-up."
+            case .signIn: "Sign in and your career comes back with you."
+            }
+        }
+
+        var action: String {
+            switch self {
+            case .signUp: "Create account"
+            case .signIn: "Sign in"
+            }
+        }
+
+        /// The prompt for the other mode, as one sentence.
+        var switchPrompt: String {
+            switch self {
+            case .signUp: "Already have an account? Sign in"
+            case .signIn: "New here? Create an account"
+            }
+        }
+
+        var toggled: Mode {
+            switch self {
+            case .signUp: .signIn
+            case .signIn: .signUp
+            }
+        }
     }
 
-    private(set) var phase: Phase = .idle
-    private(set) var ownFailure: AuthFailure?
+    enum Phase: Equatable {
+        case editing
+        case submitting
+        /// Signed up, but the project requires a confirmation click first.
+        case awaitingConfirmation(email: String)
+    }
 
-    /// The raw nonce for the request in flight. Cleared as soon as it is spent —
-    /// a nonce that outlives its exchange is the thing it exists to prevent.
-    @ObservationIgnored private var pendingNonce: String?
+    var email: String = ""
+    var password: String = ""
+
+    private(set) var mode: Mode = .signUp
+    private(set) var phase: Phase = .editing
+    private(set) var failure: AuthFailure?
+
+    /// Set once someone has tried. Until then the fields stay quiet — marking an
+    /// address invalid while it is still being typed is the most common way a
+    /// form nags.
+    private(set) var hasAttempted = false
 
     private let auth: AuthService
 
@@ -29,78 +75,134 @@ final class SignInViewModel {
     }
 
     /// Seam for previews and tests. Nothing in the app calls this.
-    init(auth: AuthService, phase: Phase, failure: AuthFailure? = nil) {
+    init(
+        auth: AuthService,
+        mode: Mode = .signUp,
+        phase: Phase = .editing,
+        email: String = "",
+        password: String = "",
+        failure: AuthFailure? = nil
+    ) {
         self.auth = auth
+        self.mode = mode
         self.phase = phase
-        self.ownFailure = failure
+        self.email = email
+        self.password = password
+        self.failure = failure
+        self.hasAttempted = failure != nil
     }
 
-    /// What the screen shows.
-    ///
-    /// A revoked credential is reported by `AuthService`, not by this screen's
-    /// own attempt, but it lands here — someone whose Apple ID was disconnected
-    /// arrives on this screen and is owed the reason.
-    var failure: AuthFailure? {
-        let candidate = ownFailure ?? auth.lastSessionFailure
-        guard let candidate, candidate.isWorthShowing else { return nil }
-        return candidate
-    }
+    // MARK: - Derived state
 
-    var isAuthenticating: Bool { phase == .authenticating }
+    var isSubmitting: Bool { phase == .submitting }
 
-    // MARK: - The two halves of an Apple sign-in
-
-    /// Called as the sheet opens.
-    ///
-    /// `fullName` and `email` are both requested, and neither is required.
-    /// Apple's private relay means the address may be a forwarding one, and the
-    /// name arrives only on the first authorization — Benchd sends no mail and
-    /// shows no name it was not given, so either being withheld is fine.
-    func prepare(_ request: ASAuthorizationAppleIDRequest) {
-        let raw = AppleNonce.random()
-        pendingNonce = raw
-
-        request.requestedScopes = [.fullName, .email]
-        request.nonce = AppleNonce.sha256(raw)
-
-        ownFailure = nil
-        auth.clearSessionFailure()
-        phase = .authenticating
-    }
-
-    /// Called when the sheet closes, whichever way it went.
-    func handle(_ result: Result<ASAuthorization, any Error>) async {
-        defer { phase = .idle }
-
-        switch result {
-        case .failure(let error):
-            let failure = AuthService.translate(error)
-            // Backing out of the sheet is an answer, not an error. The screen
-            // goes back to how it was and says nothing.
-            ownFailure = failure.isWorthShowing ? failure : nil
-
-        case .success(let authorization):
-            guard let rawNonce = pendingNonce else {
-                // No nonce means this answer belongs to a request we did not
-                // make, and it cannot be exchanged safely.
-                ownFailure = .appleUnavailable
-                return
-            }
-            pendingNonce = nil
-
-            do {
-                let credential = try AuthService.appleCredential(from: authorization)
-                try await auth.signInWithApple(credential, rawNonce: rawNonce)
-            } catch let failure as AuthFailure {
-                ownFailure = failure.isWorthShowing ? failure : nil
-            } catch {
-                ownFailure = .unknown(error.localizedDescription)
-            }
+    var canSubmit: Bool {
+        guard phase != .submitting else { return false }
+        guard AuthService.normalizedEmail(email) != nil else { return false }
+        return switch mode {
+        case .signUp: AuthService.isAcceptablePassword(password)
+        case .signIn: !password.isEmpty
         }
     }
 
-    func dismissFailure() {
-        ownFailure = nil
-        auth.clearSessionFailure()
+    /// The rule, stated before anyone is told off by it.
+    var passwordRequirement: String? {
+        mode == .signUp
+            ? "At least \(AuthService.minimumPasswordLength) characters."
+            : nil
+    }
+
+    /// Live while typing: the only requirement is length, so it can be checked
+    /// on every keystroke without guessing at intent.
+    var passwordHasError: Bool {
+        if failure == .weakPassword { return true }
+        guard mode == .signUp, !password.isEmpty else { return false }
+        return !AuthService.isAcceptablePassword(password)
+    }
+
+    /// Only after a submission: a half-typed address is not an error.
+    var emailHasError: Bool {
+        if failure?.isAboutEmail == true { return true }
+        guard hasAttempted, !email.isEmpty else { return false }
+        return AuthService.normalizedEmail(email) == nil
+    }
+
+    // MARK: - Actions
+
+    func setMode(_ newMode: Mode) {
+        guard newMode != mode else { return }
+        mode = newMode
+        failure = nil
+        hasAttempted = false
+    }
+
+    func toggleMode() { setMode(mode.toggled) }
+
+    func submit() async {
+        hasAttempted = true
+
+        guard AuthService.normalizedEmail(email) != nil else {
+            failure = .invalidEmail
+            return
+        }
+        if mode == .signUp, !AuthService.isAcceptablePassword(password) {
+            failure = .weakPassword
+            return
+        }
+
+        failure = nil
+        phase = .submitting
+
+        do {
+            switch mode {
+            case .signUp:
+                let outcome = try await auth.signUp(email: email, password: password)
+                switch outcome {
+                case .signedIn:
+                    // `AppSession` is watching the auth state and moves the flow
+                    // on; this screen has nothing left to do.
+                    phase = .editing
+                case .needsEmailConfirmation(let address):
+                    password = ""
+                    phase = .awaitingConfirmation(email: address)
+                }
+
+            case .signIn:
+                try await auth.signIn(email: email, password: password)
+                phase = .editing
+            }
+        } catch let failure as AuthFailure {
+            apply(failure)
+        } catch {
+            apply(.unknown(error.localizedDescription))
+        }
+    }
+
+    private func apply(_ failure: AuthFailure) {
+        self.failure = failure
+        phase = .editing
+        // An account that already exists is not really an error — it is the
+        // wrong mode. Put them where they meant to be, with the address kept and
+        // the password dropped, since it was one for an account they do not have.
+        if failure == .emailAlreadyRegistered {
+            mode = .signIn
+            password = ""
+        }
+    }
+
+    /// Back to the fields from the confirmation hold, keeping the address so a
+    /// typo is a quick fix.
+    func editEmail() {
+        failure = nil
+        hasAttempted = false
+        phase = .editing
+    }
+
+    func clearFailure() { failure = nil }
+
+    /// Test seam for the branches that only a server can trigger. Nothing in the
+    /// app calls this; `submit()` routes through the same code.
+    func applyFailureForTesting(_ failure: AuthFailure) async {
+        apply(failure)
     }
 }

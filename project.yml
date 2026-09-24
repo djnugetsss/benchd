@@ -44,14 +44,6 @@ targets:
     configFiles:
       Debug: Config/Shared.xcconfig
       Release: Config/Shared.xcconfig
-    # Sign in with Apple is the only auth method. The entitlement is declared
-    # here so the capability travels with the project rather than living in one
-    # person's Xcode; it still has to be enabled for the App ID in the Apple
-    # Developer account before a device build will sign. See supabase/README.md.
-    entitlements:
-      path: Benchd/Resources/Benchd.entitlements
-      properties:
-        com.apple.developer.applesignin: [Default]
     preBuildScripts:
       - name: Validate Supabase config
         basedOnDependencyAnalysis: false

@@ -20,6 +20,23 @@ struct ProfileScreen: View {
                 ProfileSkeleton()
             }
         }
+        .toolbar {
+            // Settings is one push away rather than a fourth tab: three things
+            // live in there, and none is worth a permanent quarter of the tab
+            // bar. `textSecondary` rather than the accent — a gear is chrome,
+            // and the accent is spent on the career below it.
+            //
+            // iOS 26 gives every bar button its own filled container, which over
+            // this gradient reads as a white blob rather than as a control.
+            // `sharedBackgroundVisibility` is the way to decline it, and only
+            // exists there — earlier systems draw a bare glyph already.
+            if #available(iOS 26.0, *) {
+                ToolbarItem(placement: .topBarTrailing) { settingsLink }
+                    .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .topBarTrailing) { settingsLink }
+            }
+        }
         .refreshable {
             await model?.refresh()
         }
@@ -34,6 +51,15 @@ struct ProfileScreen: View {
             // A background sync may have finished while we were away.
             Task { await session.refreshAfterForeground() }
         }
+    }
+
+    private var settingsLink: some View {
+        NavigationLink(value: AppRoute.settings) {
+            Image(systemName: "gearshape")
+                .font(Typography.button)
+                .foregroundStyle(Palette.textSecondary)
+        }
+        .accessibilityLabel("Settings")
     }
 
     private var reloadKey: String {

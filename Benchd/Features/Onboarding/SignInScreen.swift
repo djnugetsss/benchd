@@ -1,20 +1,19 @@
-import AuthenticationServices
 import SwiftUI
 
-/// One button. No field, no password, no "or continue with" divider — Apple is
-/// the whole method, and the screen should look like it was designed for that
-/// rather than stripped down from something bigger.
+/// Two fields and one button.
 ///
-/// **On the Apple button.** Apple's HIG requires its own button, and the default
-/// is a black slab that would be the loudest object in the app by some distance.
-/// The outline style is the one variant that sits inside this palette: a white
-/// surface with a hairline edge, which is what every other raised thing in Benchd
-/// already is. It is given the same height and radius as `PrimaryButton` so it
-/// reads as our button that happens to carry Apple's mark, rather than as a
-/// foreign object dropped onto the page.
+/// Kept as airy as a sign-in screen can be: labels above the fields, one action,
+/// and the switch between creating an account and signing in as a quiet line of
+/// text rather than a segmented control at the top. A form is what this screen
+/// must not look like — everything that could be a field is left out, and the
+/// password rule is stated in advance so nobody meets it as a rejection.
 struct SignInScreen: View {
     @Bindable var model: SignInViewModel
     var onBack: () -> Void
+
+    @FocusState private var focus: Field?
+
+    private enum Field: Hashable { case email, password }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -22,101 +21,215 @@ struct SignInScreen: View {
             Spacer(minLength: Spacing.lg)
                 .frame(maxHeight: Spacing.xxl)
 
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-                Text("Sign in")
-                    .titleStyle()
-
-                Text("One tap with Apple. No password to remember, nothing to check your email for.")
-                    .font(Typography.callout)
-                    .foregroundStyle(Palette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: Spacing.xl)
-
-            VStack(spacing: Spacing.sm) {
-                if let failure = model.failure {
-                    InlineMessage(failure.message)
-                        .transition(Motion.appear)
-                }
-
-                appleButton
-
-                Text("Benchd sees your name only if you choose to share it, and never needs your email address.")
-                    .font(Typography.caption)
-                    .foregroundStyle(Palette.textTertiary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, Spacing.sm)
-                    .padding(.top, Spacing.xxs)
-
-                TertiaryButton("Back", isEnabled: !model.isAuthenticating, action: onBack)
-                    .padding(.top, Spacing.xxs)
+            switch model.phase {
+            case .editing, .submitting:
+                form
+            case .awaitingConfirmation(let email):
+                confirmation(email: email)
             }
 
             Spacer(minLength: Spacing.xl)
         }
         .padding(.horizontal, Spacing.screen)
         .padding(.bottom, Spacing.xl)
-        .animation(Motion.gentle, value: model.failure)
         .animation(Motion.gentle, value: model.phase)
+        .animation(Motion.gentle, value: model.mode)
     }
 
-    private var appleButton: some View {
-        SignInWithAppleButton(.signIn) { request in
-            model.prepare(request)
-        } onCompletion: { result in
-            Task { await model.handle(result) }
+    // MARK: - The form
+
+    private var form: some View {
+        VStack(alignment: .leading, spacing: Spacing.sectionGap) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                Text(model.mode.title)
+                    .titleStyle()
+
+                Text(model.mode.subtitle)
+                    .font(Typography.callout)
+                    .foregroundStyle(Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                InputField(
+                    label: "Email",
+                    placeholder: "you@example.com",
+                    text: $model.email,
+                    keyboard: .emailAddress,
+                    contentType: .username,
+                    submitLabel: .next,
+                    isEnabled: !model.isSubmitting,
+                    hasError: model.emailHasError,
+                    onSubmit: { focus = .password }
+                )
+                .focused($focus, equals: .email)
+
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    InputField(
+                        label: "Password",
+                        placeholder: model.mode == .signUp ? "Choose a password" : "Your password",
+                        text: $model.password,
+                        contentType: model.mode == .signUp ? .newPassword : .password,
+                        submitLabel: .go,
+                        isEnabled: !model.isSubmitting,
+                        hasError: model.passwordHasError,
+                        isSecure: true,
+                        onSubmit: { Task { await model.submit() } }
+                    )
+                    .focused($focus, equals: .password)
+
+                    // The rule, before it can be broken. `textTertiary` while it
+                    // is guidance; the field's own border carries the error.
+                    if let requirement = model.passwordRequirement {
+                        Text(requirement)
+                            .font(Typography.caption)
+                            .foregroundStyle(
+                                model.passwordHasError ? Palette.negative : Palette.textTertiary
+                            )
+                            .padding(.leading, Spacing.xxs)
+                            .transition(.opacity)
+                    }
+                }
+
+                if let failure = model.failure {
+                    InlineMessage(failure.message)
+                        .transition(Motion.appear)
+                }
+            }
+
+            // The actions sit at the foot of the screen rather than under the
+            // fields: with the keyboard up that puts the button just above it,
+            // and with the keyboard down it stops the screen reading as a form
+            // with a gap at the bottom.
+            Spacer(minLength: Spacing.xl)
+
+            VStack(spacing: Spacing.xxs) {
+                PrimaryButton(
+                    model.isSubmitting ? "One moment…" : model.mode.action,
+                    isEnabled: model.canSubmit
+                ) {
+                    focus = nil
+                    Task { await model.submit() }
+                }
+
+                TertiaryButton(model.mode.switchPrompt, isEnabled: !model.isSubmitting) {
+                    focus = nil
+                    model.toggleMode()
+                }
+
+                TertiaryButton("Back", isEnabled: !model.isSubmitting, action: onBack)
+            }
         }
-        .signInWithAppleButtonStyle(.whiteOutline)
-        .frame(height: buttonHeight)
-        .clipShape(RoundedRectangle.soft(Radius.md))
-        .opacity(model.isAuthenticating ? 0.6 : 1)
-        .disabled(model.isAuthenticating)
-        .accessibilityLabel("Sign in with Apple")
+        .frame(maxHeight: .infinity, alignment: .top)
+        .animation(Motion.gentle, value: model.failure)
+        .animation(Motion.gentle, value: model.passwordHasError)
     }
 
-    /// Matched to `PrimaryButton`: its label is 16pt with `Spacing.md + 2` above
-    /// and below. Apple's button has no way to take our padding, so the height
-    /// is matched by hand and kept on the spacing scale.
-    private var buttonHeight: CGFloat { Spacing.xxxl }
+    // MARK: - Awaiting confirmation
+
+    /// Only reachable when the Supabase project has email confirmation turned on.
+    /// Without this the app would look like nothing happened, because a sign-up
+    /// that needs confirming produces no session.
+    private func confirmation(email: String) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.sectionGap) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                Text("Confirm your email")
+                    .titleStyle()
+
+                Text("We sent a confirmation link to")
+                    .font(Typography.callout)
+                    .foregroundStyle(Palette.textSecondary)
+
+                // The address is the one thing worth checking at a glance, so it
+                // gets the screen's single accent.
+                Text(email)
+                    .font(Typography.body)
+                    .foregroundStyle(Palette.accentInk)
+                    .padding(.horizontal, Spacing.sm)
+                    .padding(.vertical, Spacing.xs)
+                    .background(Palette.accentTint, in: RoundedRectangle.soft(Radius.sm))
+                    .padding(.top, Spacing.xxs)
+
+                Text("Open it, then come back and sign in.")
+                    .font(Typography.callout)
+                    .foregroundStyle(Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, Spacing.xs)
+            }
+
+            VStack(spacing: Spacing.xxs) {
+                SecondaryButton("Sign in") {
+                    model.setMode(.signIn)
+                    model.editEmail()
+                }
+
+                TertiaryButton("Use a different email") {
+                    model.setMode(.signUp)
+                    model.editEmail()
+                }
+            }
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+        .transition(Motion.appear)
+    }
 }
 
-#Preview("Sign in") {
+#Preview("Sign in — create account") {
     ZStack {
         GradientBackground(showsBloom: true)
         SignInScreen(model: SignInViewModel(auth: AuthService(client: nil)), onBack: {})
     }
 }
 
-#Preview("Sign in — signing in") {
+#Preview("Sign in — returning") {
     ZStack {
         GradientBackground(showsBloom: true)
         SignInScreen(
-            model: SignInViewModel(auth: AuthService(client: nil), phase: .authenticating),
+            model: SignInViewModel(auth: AuthService(client: nil), mode: .signIn),
             onBack: {}
         )
     }
 }
 
-#Preview("Sign in — Apple failed") {
+#Preview("Sign in — password too short") {
     ZStack {
         GradientBackground(showsBloom: true)
         SignInScreen(
             model: SignInViewModel(
-                auth: AuthService(client: nil), phase: .idle, failure: .appleUnavailable
+                auth: AuthService(client: nil),
+                email: "ansh@example.com",
+                password: "short"
             ),
             onBack: {}
         )
     }
 }
 
-#Preview("Sign in — credential revoked") {
+#Preview("Sign in — wrong password") {
     ZStack {
         GradientBackground(showsBloom: true)
         SignInScreen(
             model: SignInViewModel(
-                auth: AuthService(client: nil), phase: .idle, failure: .appleRevoked
+                auth: AuthService(client: nil),
+                mode: .signIn,
+                email: "ansh@example.com",
+                password: "wrongpassword",
+                failure: .invalidCredentials
+            ),
+            onBack: {}
+        )
+    }
+}
+
+#Preview("Sign in — email taken") {
+    ZStack {
+        GradientBackground(showsBloom: true)
+        SignInScreen(
+            model: SignInViewModel(
+                auth: AuthService(client: nil),
+                mode: .signIn,
+                email: "ansh@example.com",
+                failure: .emailAlreadyRegistered
             ),
             onBack: {}
         )
@@ -128,7 +241,23 @@ struct SignInScreen: View {
         GradientBackground(showsBloom: true)
         SignInScreen(
             model: SignInViewModel(
-                auth: AuthService(client: nil), phase: .idle, failure: .network
+                auth: AuthService(client: nil),
+                email: "ansh@example.com",
+                password: "longenoughpassword",
+                failure: .network
+            ),
+            onBack: {}
+        )
+    }
+}
+
+#Preview("Sign in — confirm your email") {
+    ZStack {
+        GradientBackground(showsBloom: true)
+        SignInScreen(
+            model: SignInViewModel(
+                auth: AuthService(client: nil),
+                phase: .awaitingConfirmation(email: "ansh@example.com")
             ),
             onBack: {}
         )

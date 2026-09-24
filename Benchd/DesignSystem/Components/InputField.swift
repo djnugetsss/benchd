@@ -19,9 +19,16 @@ struct InputField: View {
     /// Shows the field in its error treatment. The message itself belongs in an
     /// `InlineMessage` beneath, not inside the field.
     var hasError: Bool = false
+    /// Masks what is typed and swaps the clear button for a reveal toggle.
+    ///
+    /// A password field is this field with the characters hidden, not a
+    /// different control — anything else and the one input on the sign-in screen
+    /// would not match the one above it.
+    var isSecure: Bool = false
     var onSubmit: () -> Void = {}
 
     @FocusState private var isFocused: Bool
+    @State private var isRevealed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
@@ -29,7 +36,7 @@ struct InputField: View {
                 .statLabelStyle()
 
             HStack(spacing: Spacing.xs) {
-                TextField(placeholder, text: $text)
+                field
                     .font(Typography.body)
                     .foregroundStyle(Palette.textPrimary)
                     .tint(Palette.accentInk)
@@ -42,18 +49,20 @@ struct InputField: View {
                     .disabled(!isEnabled)
                     .onSubmit(onSubmit)
 
-                if !text.isEmpty && isEnabled {
-                    Button {
+                if isSecure {
+                    if !text.isEmpty && isEnabled {
+                        trailingButton(
+                            icon: isRevealed ? "eye.slash" : "eye",
+                            label: isRevealed ? "Hide \(label)" : "Show \(label)"
+                        ) {
+                            isRevealed.toggle()
+                        }
+                    }
+                } else if !text.isEmpty && isEnabled {
+                    trailingButton(icon: "xmark.circle.fill", label: "Clear \(label)") {
                         text = ""
                         isFocused = true
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(Typography.iconSmall)
-                            .foregroundStyle(Palette.textTertiary)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Clear \(label)")
-                    .transition(.opacity)
                 }
             }
             .padding(.horizontal, Spacing.md)
@@ -68,6 +77,35 @@ struct InputField: View {
             .animation(Motion.gentle, value: hasError)
             .animation(Motion.quick, value: text.isEmpty)
         }
+    }
+
+    /// `SecureField` and `TextField` are different types, so the reveal toggle
+    /// has to swap the view rather than a flag on one.
+    @ViewBuilder
+    private var field: some View {
+        if isSecure && !isRevealed {
+            SecureField(placeholder, text: $text)
+        } else {
+            TextField(placeholder, text: $text)
+        }
+    }
+
+    private func trailingButton(
+        icon: String,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(Typography.iconSmall)
+                .foregroundStyle(Palette.textTertiary)
+                // Both glyphs occupy the same width, so revealing a password
+                // does not nudge the field's contents sideways.
+                .frame(width: Spacing.md, height: Spacing.md)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .transition(.opacity)
     }
 
     private var borderColor: Color {

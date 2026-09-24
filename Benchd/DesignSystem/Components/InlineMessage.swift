@@ -58,7 +58,7 @@ struct InlineMessage: View {
     VStack(spacing: Spacing.sm) {
         InlineMessage("We couldn't find that username on Sleeper. Check the spelling and try again.")
         InlineMessage("You're offline. Reconnect and try again.")
-        InlineMessage("Your Apple ID was disconnected from Benchd. Sign in again to carry on.", tone: .info)
+        InlineMessage("Passwords need at least 8 characters.", tone: .info)
     }
     .padding(Spacing.screen)
     .frame(maxHeight: .infinity)

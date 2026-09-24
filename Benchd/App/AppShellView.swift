@@ -40,8 +40,27 @@ enum AppTab: String, CaseIterable, Hashable, Identifiable {
 /// grey blur with system-blue tint, which is exactly the "default-looking
 /// SwiftUI screen" CLAUDE.md forbids. `TabView` is kept underneath so each tab
 /// retains its own state and lazily loads.
+///
+/// **Navigation.** Each tab owns a `NavigationStack` and its own path, so a
+/// player page pushed in Players is still there after a trip to Profile and
+/// back — one shared stack would collapse all three histories into one. Every
+/// stack resolves the same `AppRoute` values via `appNavigationDestinations()`,
+/// which is what lets the profile and the players list push the same screen.
+///
+/// The bars themselves are styled once, in `NavigationAppearance`.
 struct AppShellView: View {
-    @State private var selection: AppTab = .profile
+    @State private var selection: AppTab
+
+    /// Opens on a given tab. Defaults to Profile, and exists so a notification
+    /// or a deep link can land somewhere specific without the shell having to
+    /// grow a second way in.
+    init(initialTab: AppTab = .profile) {
+        _selection = State(initialValue: initialTab)
+    }
+
+    /// One path per tab. A missing entry is an empty path — a tab that has never
+    /// pushed anything does not need a stored one.
+    @State private var paths: [AppTab: NavigationPath] = [:]
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -49,14 +68,28 @@ struct AppShellView: View {
 
             TabView(selection: $selection) {
                 ForEach(AppTab.allCases) { tab in
-                    tabContent(tab)
-                        .tag(tab)
-                        .toolbar(.hidden, for: .tabBar)
+                    NavigationStack(path: path(for: tab)) {
+                        tabContent(tab)
+                            .appNavigationDestinations()
+                    }
+                    .tag(tab)
+                    .toolbar(.hidden, for: .tabBar)
                 }
             }
 
-            BenchdTabBar(selection: $selection)
+            BenchdTabBar(selection: $selection) { tab in
+                // Tapping the tab you are already on returns to its root, which
+                // is the gesture every iOS user already has in their hands.
+                paths[tab] = NavigationPath()
+            }
         }
+    }
+
+    private func path(for tab: AppTab) -> Binding<NavigationPath> {
+        Binding(
+            get: { paths[tab] ?? NavigationPath() },
+            set: { paths[tab] = $0 }
+        )
     }
 
     @ViewBuilder
@@ -73,6 +106,8 @@ struct AppShellView: View {
 /// accent blue reserved for the selected item.
 struct BenchdTabBar: View {
     @Binding var selection: AppTab
+    /// Called when the already-selected tab is tapped again.
+    var onReselect: (AppTab) -> Void = { _ in }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -100,7 +135,11 @@ struct BenchdTabBar: View {
 
     private func item(_ tab: AppTab) -> some View {
         Button {
-            selection = tab
+            if selection == tab {
+                onReselect(tab)
+            } else {
+                selection = tab
+            }
         } label: {
             VStack(spacing: Spacing.xxs + 2) {
                 Image(systemName: selection == tab ? tab.selectedIcon : tab.icon)

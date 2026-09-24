@@ -23,24 +23,62 @@ supabase/
 - Syncing is periodic, not real-time: Sleeper pulls run on a schedule or a manual
   refresh, from an Edge Function — not from the client on a timer.
 
-## Required dashboard setup (auth)
+## Required setup (auth)
 
-Magic links will not work until this is configured in the Supabase dashboard —
-it cannot be done from a migration.
+**Email and password is the only sign-in method.** No magic link, no OAuth, no
+third-party providers. Sign-in happens entirely inside the app: the app posts the
+pair to Supabase and gets a session back. Nothing leaves the app and comes back,
+which is why there is **no redirect URL and no `benchd://` URL scheme any more**
+— both existed only for the magic link, and `CFBundleURLTypes` has been removed
+from `Benchd/Resources/Info.plist`. If a future feature needs a deep link, it has
+to be re-added deliberately.
 
-**Authentication → URL Configuration → Redirect URLs**, add:
+Two dashboard settings, both under **Authentication** in the Supabase dashboard.
+Neither can be done from a migration.
 
-```
-benchd://auth-callback
-```
+### 1. Email provider on
 
-That string appears in exactly two places in the app and both must match it:
-`AuthService.redirectURL`, and `CFBundleURLTypes` in
-`Benchd/Resources/Info.plist`. If the dashboard does not list it, Supabase sends
-people to the site URL instead and the app never receives the token.
+**Authentication → Sign In / Providers → Email.** The toggle at the top of that
+panel must be enabled. It is on by default in a new project, so this is a check
+rather than a step.
 
-Email magic link is the only sign-in method in v1 — no passwords, no Sign in
-with Apple — so **Authentication → Providers → Email** must stay enabled.
+While you are there, set **Minimum password length** to **8**, which is what the
+app asks for and states on the sign-in screen. Supabase's own default is 6; if
+the dashboard is left at 6 the app is simply the stricter of the two, which is
+harmless but means the screen and the server disagree about the rule.
+
+### 2. Email confirmation — turn it OFF for solo testing
+
+**Authentication → Sign In / Providers → Email → Confirm email.**
+
+With it **on**, `signUp` returns no session: the account exists but is unusable
+until someone clicks a link in an email, which for a solo test with a real inbox
+is a round trip through whatever SMTP the project has (and a new project's built
+in mailer is rate-limited to a handful a day). With it **off**, `signUp` returns
+a session immediately and the app walks straight on to connecting Sleeper —
+which is what you want for testing.
+
+Turn **Confirm email off**.
+
+The app handles both. If confirmation is on, the sign-in screen shows a
+"Confirm your email" state naming the address rather than looking like the tap
+did nothing — see `SignInViewModel.Phase.awaitingConfirmation`. Turning it back
+on for production needs no app change.
+
+### The profile row
+
+`public.profiles` is still created by the `on_auth_user_created` trigger. The
+trigger fires `after insert on auth.users`, which is provider-agnostic — an email
+sign-up inserts an `auth.users` row exactly like any other, so the trigger fires
+unchanged and the row exists before the app ever asks for it.
+
+`display_name` comes from `raw_user_meta_data ->> 'display_name'`, which an email
+sign-up does not set, so it lands `null`. Nothing in the app requires it — the
+profile screen falls back to the connected Sleeper account's name.
+
+`AuthService.ensureProfileExists` upserts the same row on every sign-in. It is a
+deliberate no-op belt-and-braces for accounts that predate the trigger, not a
+second mechanism.
 
 ## Sync architecture
 
