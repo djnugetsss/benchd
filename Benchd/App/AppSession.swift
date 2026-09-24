@@ -81,10 +81,6 @@ final class AppSession {
         auth.start()
     }
 
-    func handle(url: URL) async {
-        await auth.handle(url: url)
-    }
-
     /// Called whenever the auth state settles. Cheap and idempotent.
     func refreshConnectionState() async {
         guard let profileID = auth.sessionState.userID else {

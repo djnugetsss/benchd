@@ -13,5 +13,6 @@ enum AppLog {
     static let auth = Logger(subsystem: subsystem, category: "auth")
     static let sync = Logger(subsystem: subsystem, category: "sync")
     static let profile = Logger(subsystem: subsystem, category: "profile")
+    static let wraps = Logger(subsystem: subsystem, category: "wraps")
     static let network = Logger(subsystem: subsystem, category: "network")
 }

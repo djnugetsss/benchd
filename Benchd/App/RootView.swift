@@ -16,8 +16,8 @@ struct RootView: View {
 
             case .onboarding(let startingStep):
                 OnboardingFlowView(startingAt: startingStep)
-                    // Identity keyed on the entry step so returning from a magic
-                    // link rebuilds the flow at the right place rather than
+                    // Identity keyed on the entry step so a session restored on
+                    // launch rebuilds the flow at the right place rather than
                     // reusing the signed-out one.
                     .id(startingStep)
                     .transition(Motion.appear)

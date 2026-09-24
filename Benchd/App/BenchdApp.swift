@@ -8,13 +8,10 @@ struct BenchdApp: App {
         WindowGroup {
             RootView()
                 .environment(session)
+                // Starts the auth listener and re-checks the Apple credential,
+                // which is how a sign-in revoked while the app was closed is
+                // noticed. See AuthService.start().
                 .task { session.start() }
-                // Supabase sends people back to benchd://auth-callback after
-                // they tap the magic link. The URL carries the token that gets
-                // exchanged for a session — see AuthService.handle(url:).
-                .onOpenURL { url in
-                    Task { await session.handle(url: url) }
-                }
         }
     }
 }

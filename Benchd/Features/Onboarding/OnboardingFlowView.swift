@@ -35,8 +35,8 @@ struct OnboardingFlowView: View {
         .animation(Motion.gentle, value: step)
         .task { prepareModels() }
         .onChange(of: session.auth.sessionState) { _, newValue in
-            // Coming back from a magic link lands here, not on a fresh launch
-            // path, so the flow has to advance itself.
+            // Apple's sheet signs someone in without leaving the flow, so the
+            // step has to advance itself the moment the session lands.
             if newValue.userID != nil, step != .connectSleeper {
                 prepareModels()
                 step = .connectSleeper

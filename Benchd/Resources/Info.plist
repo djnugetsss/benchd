@@ -35,22 +35,11 @@
 	<key>UIUserInterfaceStyle</key>
 	<string>Light</string>
 
-	<!-- Magic-link return path. Must match AuthService.redirectURL and the
-	     allowed redirect URLs in the Supabase dashboard
-	     (Authentication -> URL Configuration). -->
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-			<key>CFBundleURLName</key>
-			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>benchd</string>
-			</array>
-		</dict>
-	</array>
+	<!-- Add-only: Benchd writes a wrap card into Photos and never reads the
+	     library. The add-only entitlement is what keeps the system prompt to
+	     "add to" rather than "access all" — see WrapExporter.saveToPhotos. -->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Benchd saves your weekly wrap card to Photos so you can post it.</string>
 
 	<!-- Injected at build time from Secrets.xcconfig. See Secrets.example.xcconfig. -->
 	<key>SUPABASE_URL</key>

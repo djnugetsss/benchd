@@ -101,6 +101,40 @@ Streaks are computed within one league-season. Someone in three leagues at once
 plays three parallel schedules, and interleaving them by week would manufacture
 a streak out of games from different competitions.
 
+### The weekly wrap
+
+`weekly_wrap(account, season, week)` returns one week of one manager's football —
+across every league they play in — as the shareable card reads it: the record,
+the points, each league's scoreline, the three best starters, and one highlight.
+`recent_weekly_wraps(account, limit)` returns the most recently played weeks,
+each as a full payload, because the Wraps tab renders real cards as its history
+thumbnails rather than a summary list.
+
+Unlike `career_stats` this is **computed on demand, not cached**. It reads a
+single week of `matchups` behind an existing index, and a wrap that is an hour
+stale is a wrap showing the wrong score.
+
+Both are `security invoker` and reach `public.my_rosters`, a security-invoker
+view whose scoping comes entirely from `sleeper_accounts`' owner-only policy —
+there is no `where profile_id = auth.uid()` to forget, because the policy is the
+filter. Passing someone else's account id returns null.
+
+Three decisions worth knowing about, each because this payload ends up on a
+public Instagram story and so does not get to be approximately true:
+
+| Decision | Why |
+|---|---|
+| One opponent per roster, enforced with `distinct on` | A `matchup_id` shared by more than two rosters — a sync glitch — otherwise multiplies every row beneath it, and the visible result is a card claiming a 2–1 week that was 1–1 |
+| "Top score in the league" needs every roster reported | Halfway through a Sunday two rosters have rows and ten do not. Ranking against a partial week is a boast the data does not support, so the claim is suppressed until `teams >= total_rosters` |
+| A week of zeroes returns null, not an empty wrap | Sleeper answers for every week of a live season, including ones that have not happened |
+
+The highlight is chosen by priority, most postable first: top score in the
+league, a perfect week, a win by three or less, a loss by three or less, a win by
+thirty or more, the weekly rank, and finally the score itself — so a card is
+never left with nothing to say. Its `headline` is written in SQL for the same
+reason the sync writes its own progress copy: a new kind of highlight should not
+need an App Store release.
+
 ### Deploying
 
 **`supabase db push` alone is not enough.** The database and the functions

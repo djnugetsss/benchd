@@ -2,8 +2,8 @@ import Foundation
 
 /// The three onboarding screens.
 ///
-/// Not a linear wizard: the magic link takes a person out of the app and back,
-/// so the flow can legitimately resume at `connectSleeper` on a cold launch.
+/// Not a linear wizard: someone who signed in last week but never finished
+/// connecting Sleeper resumes at `connectSleeper` on a cold launch.
 /// `AppSession` decides where to enter; the flow view handles the rest.
 enum OnboardingStep: Hashable, CaseIterable, Sendable {
     case welcome

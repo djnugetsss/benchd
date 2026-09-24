@@ -692,7 +692,11 @@ extension CareerFact {
 // MARK: - Shared formatting
 
 /// Record text in one place, so "128–74–2" is punctuated the same everywhere.
-enum Record {
+///
+/// `nonisolated` because it is a pure function of two integers, and it is called
+/// from places that are not the main actor — a wrap card's share title is built
+/// while the image is being exported.
+nonisolated enum Record {
     /// En dashes, and the ties component only when there are ties.
     static func text(wins: Int, losses: Int, ties: Int) -> String {
         ties > 0 ? "\(wins)–\(losses)–\(ties)" : "\(wins)–\(losses)"

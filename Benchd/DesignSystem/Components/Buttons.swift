@@ -62,23 +62,52 @@ struct PrimaryButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: Spacing.xs) {
-                if let systemImage {
-                    Image(systemName: systemImage).font(Typography.button)
-                }
-                Text(title).font(Typography.button).tracking(-0.1)
-            }
-            .foregroundStyle(isEnabled ? tone.foreground : Palette.textTertiary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, Spacing.md + 2)
-            .background(
-                isEnabled ? tone.background : Palette.surfaceSecondary,
-                in: RoundedRectangle.soft(Radius.md)
-            )
+            PrimaryButtonLabel(title, tone: tone, systemImage: systemImage, isEnabled: isEnabled)
         }
         .buttonStyle(SoftPressStyle())
         .disabled(!isEnabled)
         .animation(Motion.gentle, value: isEnabled)
+    }
+}
+
+/// `PrimaryButton`'s appearance, without the button.
+///
+/// Extracted for the one control that cannot be a `Button`: `ShareLink` brings
+/// its own tap handling and takes a label. Without this, the share action — the
+/// most important button in the app — would be a hand-rolled lookalike that
+/// drifts from every other primary button the first time one of them changes.
+struct PrimaryButtonLabel: View {
+    let title: String
+    var tone: PrimaryButton.Tone = .ink
+    var systemImage: String? = nil
+    var isEnabled: Bool = true
+
+    init(
+        _ title: String,
+        tone: PrimaryButton.Tone = .ink,
+        systemImage: String? = nil,
+        isEnabled: Bool = true
+    ) {
+        self.title = title
+        self.tone = tone
+        self.systemImage = systemImage
+        self.isEnabled = isEnabled
+    }
+
+    var body: some View {
+        HStack(spacing: Spacing.xs) {
+            if let systemImage {
+                Image(systemName: systemImage).font(Typography.button)
+            }
+            Text(title).font(Typography.button).tracking(-0.1)
+        }
+        .foregroundStyle(isEnabled ? tone.foreground : Palette.textTertiary)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Spacing.md + 2)
+        .background(
+            isEnabled ? tone.background : Palette.surfaceSecondary,
+            in: RoundedRectangle.soft(Radius.md)
+        )
     }
 }
 
